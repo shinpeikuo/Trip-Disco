@@ -1,0 +1,7 @@
+# Private trip data - never commit
+private/
+*.xlsx
+*.docx
+
+# Local preview config
+.claude/settings.local.json

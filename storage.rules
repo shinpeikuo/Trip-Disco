@@ -1,0 +1,13 @@
+rules_version = '2';
+// Paste this into Firebase console -> Storage -> Rules, then Publish.
+// Files live under trips/<trip code>/ and cannot be listed, only opened by their exact link.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /trips/{code}/{file} {
+      allow get: if request.auth != null;
+      allow create: if request.auth != null && request.resource.size < 20 * 1024 * 1024;
+      allow delete: if request.auth != null;
+      allow list, update: if false;
+    }
+  }
+}

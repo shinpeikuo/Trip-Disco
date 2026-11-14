@@ -112,7 +112,7 @@ export function plan(day) {
   return {
     title: 'Plan', tab: 'plan', live: true,
     html: `
-      <nav class="daybar" id="days" aria-label="Trip days">${days.map((x, i) => `<a class="dseg${x === d ? ' on' : ''}" href="#/plan/${x}" aria-label="Day ${i + 1}, ${esc(dayLabel(x))}"${x === d ? ' aria-current="page"' : ''}>${i + 1}</a>`).join('')}</nav>
+      <nav class="daybar" id="days" aria-label="Trip days">${days.map((x, i) => `<a class="dseg${x === d ? ' on' : ''}" href="#/plan/${x}" aria-label="Day ${i + 1}, ${esc(dayLabel(x))}"${x === d ? ' aria-current="page"' : ''}><span>${i + 1}</span></a>`).join('')}</nav>
       <div class="swipe" id="swipe">
       <div class="day-head">
         <h2>${esc(dayLabel(d, { weekday: 'long', month: 'long', day: 'numeric' }))}</h2>

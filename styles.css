@@ -150,18 +150,19 @@ legend { font-weight: 700; padding: 0 6px; }
 main:has(.swipe) { overflow-x: clip; } /* clip, not hidden, so the day bar can stay stuck to the top */
 /* Day bar: full width, one segment per day, stays at the top while you scroll */
 .daybar {
-  position: sticky; top: 0; z-index: 9; display: flex; margin: -12px -16px 0; padding: 6px 4px;
-  background: #e4e6ea; border-bottom: 1px solid var(--line); box-shadow: 0 2px 6px rgba(0, 0, 0, .06);
+  position: sticky; top: 0; z-index: 9; display: flex; margin: -12px -16px 0; padding: 1px 4px;
+  background: #e4e6ea; border-bottom: 1px solid var(--line);
 }
 .dseg {
-  flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; height: 40px;
-  border-radius: 8px; color: #3b4350; font-weight: 700; font-size: .95rem; text-decoration: none;
+  flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; height: 20px;
+  color: #3b4350; font-weight: 700; font-size: .72rem; text-decoration: none;
 }
-.dseg.on { background: var(--brand); color: #fff; }
+.dseg span { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; }
+.dseg.on span { background: var(--brand); color: #fff; }
 @media (prefers-color-scheme: dark) {
   .daybar { background: #2a313b; }
   .dseg { color: #c9d1db; }
-  .dseg.on { color: var(--brand-ink); }
+  .dseg.on span { color: var(--brand-ink); }
 }
 .day-head { margin: 12px 0 8px; }
 .day-head h2 { margin: 0 0 2px; font-size: 1.45rem; }

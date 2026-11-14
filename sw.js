@@ -1,7 +1,7 @@
 // Service worker: keeps the app, the Firebase code and every attachment picture on the phone,
 // so the trip opens without internet (subway, plane).
 // Change VERSION when you publish an update so phones pick up the new files.
-const VERSION = 'v9';
+const VERSION = 'v10';
 const SHELL = `tp-shell-${VERSION}`;
 const LIBS = 'tp-libs';
 const FILES = 'tp-files';

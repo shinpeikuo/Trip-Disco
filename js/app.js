@@ -1,6 +1,6 @@
 // App start-up, screen switching (the part after # in the address) and the header / tab bar.
 import { store } from './store.js';
-import { state, hooks, device, go, navDepth, takeReplacing } from './state.js';
+import { state, hooks, device, go, takeReplacing } from './state.js';
 import { esc, clock, clockDay, FLAG, HOME, refreshWeather, parseMapsInput } from './util.js';
 import { decorate, currentCity } from './derived.js';
 import { cacheAttachments } from './files.js';
@@ -126,32 +126,16 @@ function paint(v, keepScroll) {
   document.body.classList.toggle('full', !!v.full);
   document.getElementById('top').innerHTML = v.full ? '' : header(v);
   document.getElementById('main').innerHTML = v.html;
-  const navHtml = v.full || !state.code || !v.tab ? '' : nav(v.tab);
+  // The tab bar shows on every trip screen (not full-screen tickets / driver cards), so Now and Plan are one tap away.
+  const navHtml = v.full || !state.code || !state.trip ? '' : nav(v.tab || tabFor(location.hash));
   document.getElementById('nav').innerHTML = navHtml;
   document.body.classList.toggle('has-nav', !!navHtml);
-  backButton(v);
   v.mount?.(document.getElementById('main'));
   window.scrollTo(0, keepScroll ? scroll : 0);
 }
 
-// Round Back button at the bottom right: goes to the screen you were on before.
-// If the app was just opened (nothing to go back to), it goes to the screen "above" this one instead.
-function backButton(v) {
-  let b = document.getElementById('backbtn');
-  if (!b) {
-    b = document.createElement('button');
-    b.id = 'backbtn'; b.type = 'button'; b.setAttribute('aria-label', 'Back');
-    b.innerHTML = '<span>‹</span><small>Back</small>';
-    b.addEventListener('click', () => {
-      if (navDepth() > 0) history.back();
-      else if (current?.view?.back) go(current.view.back, true);
-    });
-    document.body.appendChild(b);
-  }
-  b.hidden = !(navDepth() > 0 || v.back);
-}
-
 function header(v) {
+  const back = v.back ? `<a class="back" href="${esc(v.back)}" aria-label="Back">‹</a>` : '';
   let clocks = '';
   if (state.trip && !v.noClock) {
     const here = currentCity();
@@ -161,7 +145,14 @@ function header(v) {
   }
   const offline = navigator.onLine ? '' : '<span class="pill offline">Offline</span>';
   const preview = store.mode === 'local' ? '<span class="pill preview" title="Saved on this device only">Preview</span>' : '';
-  return `<header class="bar"><h1>${esc(v.title || 'Family Trip')}</h1>${offline}${preview}</header>${clocks}`;
+  return `<header class="bar">${back}<h1>${esc(v.title || 'Family Trip')}</h1>${offline}${preview}</header>${clocks}`;
+}
+
+// Which tab to light up on screens that are not tabs themselves.
+function tabFor(hash) {
+  if (/^#\/(event|edit|map|file|shared)\//.test(hash + '/')) return 'plan';
+  if (/^#\/(trips|join|create|pick)/.test(hash)) return '';
+  return 'more';
 }
 
 function nav(tab) {

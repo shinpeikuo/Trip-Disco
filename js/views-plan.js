@@ -81,6 +81,8 @@ export function now() {
 }
 
 // ---------- Daily plan ----------
+let enterFrom = 0; // set when changing days: the new day slides in from the right (1) or left (-1)
+
 export function plan(day) {
   const t = state.trip;
   const days = tripDays(t);
@@ -111,6 +113,7 @@ export function plan(day) {
     title: 'Plan', tab: 'plan', live: true,
     html: `
       <div class="days" id="days">${days.map((x, i) => `<a class="chip${x === d ? ' on' : ''}" href="#/plan/${x}"><b>Day ${i + 1}</b><span>${esc(dayLabel(x, { weekday: 'short' }))} ${esc(dayLabel(x, { month: 'numeric', day: 'numeric' }))}</span></a>`).join('')}</div>
+      <div class="swipe" id="swipe">
       <div class="day-head">
         <h2>${esc(dayLabel(d, { weekday: 'long', month: 'long', day: 'numeric' }))}</h2>
         <div>📍 ${esc(city)}${weatherFor(city, d) ? ' · ' + wxLine(city, d) : ''}</div>
@@ -121,6 +124,7 @@ export function plan(day) {
         <a class="btn primary" href="#/edit/new/${d}">+ Add</a>
       </div>
       ${rows ? `<ol class="timeline">${rows}</ol>` : `<div class="card center muted">Nothing planned${state.filter !== 'all' ? ' for ' + esc(memberName(state.filter)) : ''} on this day yet.</div>`}
+      </div>
       <div class="pager" id="pager">
         ${idx > 0 ? `<a class="pg" data-day="${days[idx - 1]}" href="#/plan/${days[idx - 1]}" aria-label="Previous day">‹</a>` : '<span class="pg off">‹</span>'}
         <span class="pg-label">${idx >= 0 ? `Day ${idx + 1} of ${days.length}` : esc(dayLabel(d, { month: 'short', day: 'numeric' }))}</span>
@@ -128,29 +132,65 @@ export function plan(day) {
       </div>`,
     mount(el) {
       const on = el.querySelector('.chip.on');
-      if (on) el.querySelector('#days').scrollLeft = on.offsetLeft - 16;
+      if (on) el.querySelector('#days').scrollLeft = on.offsetLeft - 16; // jump straight there, no scrolling animation
+      const sw = el.querySelector('#swipe');
+      const slide = (x, ms) => { sw.style.transition = ms ? `transform ${ms}ms ease-out, opacity ${ms}ms ease-out` : 'none'; sw.style.transform = x ? `translateX(${x}px)` : ''; };
+
+      // The new day slides in from the side you swiped towards.
+      if (enterFrom) {
+        const from = enterFrom; enterFrom = 0;
+        slide(from * innerWidth * 0.6, 0); sw.style.opacity = '0';
+        void sw.offsetWidth; // make the browser draw the start position before animating
+        slide(0, 220); sw.style.opacity = '';
+      }
+
       // Changing days swaps the screen instead of adding a step, so Back leaves the plan rather than walking through days.
-      const toDay = (x) => { if (x) go('#/plan/' + x, true); };
-      el.querySelectorAll('.chip, .pg[data-day]').forEach((a) => a.addEventListener('click', (ev) => {
+      const toDay = (x, dir) => {
+        if (!x) return;
+        enterFrom = dir;
+        if (dir) { slide(-dir * innerWidth, 160); sw.style.opacity = '0'; setTimeout(() => go('#/plan/' + x, true), 150); }
+        else go('#/plan/' + x, true);
+      };
+      el.querySelectorAll('.chip').forEach((a) => a.addEventListener('click', (ev) => {
         ev.preventDefault();
-        toDay(a.dataset.day || a.getAttribute('href').split('/').pop());
+        const x = a.getAttribute('href').split('/').pop();
+        toDay(x, Math.sign(days.indexOf(x) - idx) || 0);
       }));
-      // Swipe left = next day, swipe right = previous day. Swipes that start at the very edge of the
-      // screen are ignored, because iPhone and Android use those for their own "go back" gesture.
-      let sx = null, sy = 0, st = 0;
-      el.addEventListener('touchstart', (ev) => {
+      el.querySelectorAll('.pg[data-day]').forEach((a) => a.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        toDay(a.dataset.day, a.dataset.day > d ? 1 : -1);
+      }));
+
+      // Swipe: the day follows your finger. Let go past a third of the way (or flick) to change day.
+      // Swipes that start at the very edge are left alone: iPhone and Android use those for "go back".
+      const prev = days[idx - 1], next = idx >= 0 ? days[idx + 1] : undefined;
+      let sx = null, sy = 0, st = 0, dx = 0, horiz = null;
+      sw.addEventListener('touchstart', (ev) => {
         const t0 = ev.touches[0];
-        sx = ev.touches.length === 1 && t0.clientX > 30 && t0.clientX < innerWidth - 30 && !ev.target.closest('#days, select') ? t0.clientX : null;
-        sy = t0.clientY; st = Date.now();
+        sx = ev.touches.length === 1 && t0.clientX > 24 && t0.clientX < innerWidth - 24 && !ev.target.closest('select') ? t0.clientX : null;
+        sy = t0.clientY; st = Date.now(); dx = 0; horiz = null;
       }, { passive: true });
-      el.addEventListener('touchend', (ev) => {
+      sw.addEventListener('touchmove', (ev) => {
         if (sx == null) return;
-        const t1 = ev.changedTouches[0];
-        const dx = t1.clientX - sx, dy = t1.clientY - sy;
-        sx = null;
-        if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - st > 800) return;
-        toDay(days[idx + (dx < 0 ? 1 : -1)]);
+        const t = ev.touches[0];
+        dx = t.clientX - sx;
+        const dy = t.clientY - sy;
+        if (horiz == null && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) horiz = Math.abs(dx) > Math.abs(dy);
+        if (!horiz) return;
+        const edge = (dx > 0 && !prev) || (dx < 0 && !next); // first or last day: only stretches a little
+        slide(edge ? dx * 0.25 : dx, 0);
       }, { passive: true });
+      const end = () => {
+        if (sx == null) return;
+        sx = null;
+        if (!horiz) return;
+        const fast = Math.abs(dx) > 40 && Date.now() - st < 300;
+        const target = dx < 0 ? next : prev;
+        if (target && (Math.abs(dx) > innerWidth / 3 || fast)) toDay(target, dx < 0 ? 1 : -1);
+        else slide(0, 200);
+      };
+      sw.addEventListener('touchend', end, { passive: true });
+      sw.addEventListener('touchcancel', end, { passive: true });
       el.querySelector('#who').addEventListener('change', (ev) => {
         state.filter = ev.target.value;
         try { localStorage.setItem('tp.filter', JSON.stringify(state.filter)); } catch { /* ignore */ }

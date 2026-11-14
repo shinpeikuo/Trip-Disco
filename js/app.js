@@ -57,6 +57,7 @@ function openTrip(code) {
         device.save({ ...entry, me: state.me, name: d.name, startDate: d.startDate, endDate: d.endDate });
         decorate();
         refreshWeather(d).then((changed) => changed && refresh());
+        X.refreshRates();
       }
       refresh();
     }),
@@ -190,7 +191,7 @@ async function start() {
     depth = history.state.d;
     render();
   });
-  window.addEventListener('online', () => { render(true); if (state.trip) refreshWeather(state.trip).then(() => refresh()); cacheAttachments(state.events); });
+  window.addEventListener('online', () => { render(true); if (state.trip) { refreshWeather(state.trip).then(() => refresh()); X.refreshRates(); } cacheAttachments(state.events); });
   window.addEventListener('offline', () => render(true));
   window.addEventListener('tp-error', (e) => toast('Could not save: ' + e.detail, 5000));
   setInterval(() => { if (current?.view?.live && !current.view.noTick && !document.querySelector('.modal-wrap')) render(true); }, 30000);

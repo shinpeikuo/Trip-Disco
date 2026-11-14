@@ -238,30 +238,87 @@ export function hotelEdit(id) {
 // ---------- Money ----------
 const CUR = { USD: { sym: '$', name: 'US dollars', flag: '🇺🇸', dec: 2 }, JPY: { sym: '¥', name: 'Japanese yen', flag: '🇯🇵', dec: 0 }, TWD: { sym: 'NT$', name: 'Taiwan dollars', flag: '🇹🇼', dec: 0 } };
 const fmtMoney = (v, c) => CUR[c].sym + v.toLocaleString('en-US', { minimumFractionDigits: CUR[c].dec, maximumFractionDigits: CUR[c].dec });
+const fmtRate = (v, c) => (v == null ? '?' : v.toLocaleString('en-US', { maximumFractionDigits: c === 'JPY' ? 2 : 3 }));
+const fmtWhen = (ms) => new Date(ms).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+// Automatic exchange rates: once every 6 hours at most, the first phone that is online fetches
+// today's rates and saves them into the trip, so everyone has them (also offline).
+// Main source: ExchangeRate-API's free service (no sign-up). Backup: a free rates file on jsDelivr.
+// Only "rates for US dollars" is requested; nothing about the trip or family is sent.
+const RATE_SOURCES = [
+  ['ExchangeRate-API', 'https://open.er-api.com/v6/latest/USD', (d) => d.result === 'success' && { JPY: d.rates?.JPY, TWD: d.rates?.TWD }],
+  ['jsDelivr currency-api', 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json', (d) => ({ JPY: d.usd?.jpy, TWD: d.usd?.twd })],
+];
+const RATE_EVERY = 6 * 3600e3;
+let ratesBusy = false;
+export async function refreshRates(force = false) {
+  const t = state.trip;
+  if (!t || !state.code || ratesBusy || !navigator.onLine) return;
+  const r = t.rates || {};
+  if (r.auto === false) return; // someone chose to type their own rates
+  if (!force && r.pulledAt && Date.now() - r.pulledAt < RATE_EVERY) return;
+  const triedKey = 'tp.ratesTried';
+  if (!force && Date.now() - (+localStorage.getItem(triedKey) || 0) < 30 * 60e3) return; // failed recently on this phone
+  ratesBusy = true;
+  try { localStorage.setItem(triedKey, String(Date.now())); } catch { /* ignore */ }
+  try {
+    for (const [source, url, pick] of RATE_SOURCES) {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const got = pick(await res.json());
+        if (!(got?.JPY > 0 && got?.TWD > 0)) continue;
+        const now = Date.now();
+        store.update(['trips', state.code], { rates: {
+          auto: true, pulledAt: now, source,
+          JPY: { perUSD: +got.JPY.toFixed(4), updatedAt: now, by: 'auto' },
+          TWD: { perUSD: +got.TWD.toFixed(4), updatedAt: now, by: 'auto' },
+        } });
+        return true;
+      } catch { /* try the next source */ }
+    }
+    if (force) toast('Could not get the exchange rates right now. Try again later.');
+  } finally { ratesBusy = false; }
+  return false;
+}
 
 let lastAmount = '';
 export function money() {
   const rates = state.trip.rates || {};
+  const auto = rates.auto !== false;
   const perUsd = { USD: 1, JPY: rates.JPY?.perUSD, TWD: rates.TWD?.perUSD };
   let from = (() => { try { return sessionStorage.getItem('tp.cur'); } catch { return null; } })() || curOfTz(currentCity().tz);
   if (!CUR[from]) from = 'JPY';
-  const rateRow = (c) => `<div class="rate"><label>1 US$ = <input id="rate-${c}" name="${c}" type="number" inputmode="decimal" step="any" value="${esc(perUsd[c] ?? '')}" placeholder="?"> ${CUR[c].sym}</label>
-    <small class="muted">${rates[c]?.updatedAt ? `Updated ${esc(ago(rates[c].updatedAt))} by ${esc(memberName(rates[c].by))}` : 'Not set yet'}</small></div>`;
+  const lastAt = Math.max(rates.JPY?.updatedAt || 0, rates.TWD?.updatedAt || 0);
+  const by = auto ? '' : [rates.JPY?.by, rates.TWD?.by].find((b) => b && b !== 'auto');
+  const updated = lastAt
+    ? `Last updated <b>${esc(fmtWhen(lastAt))}</b>${auto ? '' : by ? ` · typed in by ${esc(memberName(by))}` : ' · typed in'}`
+    : (auto ? 'Getting today\'s exchange rates…' : 'Exchange rates not set yet');
+  const rateRow = (c) => `<div class="rate"><label>1 US$ = <input id="rate-${c}" name="${c}" type="number" inputmode="decimal" step="any" value="${esc(perUsd[c] ?? '')}" placeholder="?"> ${CUR[c].sym}</label></div>`;
   const quick = { JPY: [100, 500, 1000, 3000, 5000, 10000], TWD: [50, 100, 300, 500, 1000, 2000], USD: [1, 5, 10, 20, 50, 100] };
   return {
     title: 'Money', tab: 'money', live: true, noTick: true,
-    html: `<div class="card">
+    html: `<p class="updated">🕒 ${updated}</p>
+    <div class="card">
       <div class="seg" id="seg">${Object.keys(CUR).map((c) => `<button type="button" data-c="${c}" class="${c === from ? 'on' : ''}">${CUR[c].flag} ${CUR[c].sym}</button>`).join('')}</div>
       <label class="amount"><span id="sym">${CUR[from].sym}</span><input id="amt" type="number" inputmode="decimal" step="any" placeholder="0" value="${esc(lastAmount)}"></label>
       <div id="out" class="conv"></div>
     </div>
     <div class="card"><h2>Quick guide</h2><table class="quick" id="quick"></table></div>
-    <form class="card" id="rates">
+    <div class="card">
       <h2>Exchange rates</h2>
-      <p class="small muted">Type today's rate (from a bank or currency app). Everyone on the trip sees it, even offline.</p>
-      ${rateRow('JPY')}${rateRow('TWD')}
-      <button class="btn primary">Save rates</button>
-    </form>`,
+      <div class="seg" id="mode"><button type="button" data-auto="1" class="${auto ? 'on' : ''}">Automatic</button><button type="button" data-auto="0" class="${auto ? '' : 'on'}">Type my own</button></div>
+      ${auto ? `
+        <p class="rate-show">1 US$ = <b>${fmtRate(perUsd.JPY, 'JPY')} ¥</b> · <b>${fmtRate(perUsd.TWD, 'TWD')} NT$</b></p>
+        <p class="small muted">Updated by itself a few times a day when someone has internet. These are market rates; airport and hotel exchange booths usually give 3–8% less.</p>
+        <button type="button" class="btn" id="pullnow">Update now</button>
+        <p class="small muted credit"><a href="https://www.exchangerate-api.com" target="_blank" rel="noopener">Rates by ExchangeRate-API</a></p>` : `
+        <form id="rates">
+          <p class="small muted">Type the rate you are getting (from a bank, card or exchange booth). Everyone on the trip sees it, even offline.</p>
+          ${rateRow('JPY')}${rateRow('TWD')}
+          <button class="btn primary">Save rates</button>
+        </form>`}
+    </div>`,
     mount(el) {
       const amt = el.querySelector('#amt');
       const draw = () => {
@@ -270,11 +327,11 @@ export function money() {
         el.querySelector('#sym').textContent = CUR[from].sym;
         el.querySelector('#out').innerHTML = Object.keys(CUR).filter((c) => c !== from).map((c) =>
           `<div class="conv-row"><span>${CUR[c].flag}</span><b>${usd != null && perUsd[c] ? fmtMoney(usd * perUsd[c], c) : '—'}</b><small>${CUR[c].name}</small></div>`).join('')
-          + (!perUsd.JPY || !perUsd.TWD ? '<p class="small muted">Set the exchange rates below first.</p>' : '');
+          + (!perUsd.JPY || !perUsd.TWD ? '<p class="small muted">No exchange rates yet.</p>' : '');
         const other = from === 'USD' ? (curOfTz(currentCity().tz) === 'USD' ? 'JPY' : curOfTz(currentCity().tz)) : 'USD';
         el.querySelector('#quick').innerHTML = perUsd[from] && perUsd[other]
           ? quick[from].map((q) => `<tr><td>${fmtMoney(q, from)}</td><td>≈ ${fmtMoney((q / perUsd[from]) * perUsd[other], other)}</td></tr>`).join('')
-          : '<tr><td class="muted">Set the exchange rates below first.</td></tr>';
+          : '<tr><td class="muted">No exchange rates yet.</td></tr>';
       };
       amt.addEventListener('input', () => { lastAmount = amt.value; draw(); });
       el.querySelectorAll('#seg button').forEach((b) => b.addEventListener('click', () => {
@@ -284,14 +341,26 @@ export function money() {
         draw();
         amt.focus();
       }));
-      el.querySelector('#rates').addEventListener('submit', (ev) => {
+      el.querySelectorAll('#mode button').forEach((b) => b.addEventListener('click', () => {
+        const on = b.dataset.auto === '1';
+        if (on === auto) return;
+        store.update(['trips', state.code], { rates: { auto: on } });
+        if (on) { state.trip.rates = { ...rates, auto: true }; refreshRates(true); }
+      }));
+      el.querySelector('#pullnow')?.addEventListener('click', async (ev) => {
+        if (!navigator.onLine) { toast('Updating needs the internet'); return; }
+        ev.target.disabled = true; ev.target.textContent = 'Updating…';
+        if (await refreshRates(true)) toast('Rates updated');
+        ev.target.disabled = false; ev.target.textContent = 'Update now';
+      });
+      el.querySelector('#rates')?.addEventListener('submit', (ev) => {
         ev.preventDefault();
-        const upd = {};
+        const upd = { auto: false };
         for (const c of ['JPY', 'TWD']) {
           const v = parseFloat(ev.target[c].value);
           if (v > 0 && v !== perUsd[c]) { upd[c] = { perUSD: v, updatedAt: Date.now(), by: state.me }; perUsd[c] = v; }
         }
-        if (Object.keys(upd).length) store.update(['trips', state.code], { rates: upd });
+        store.update(['trips', state.code], { rates: upd });
         toast('Rates saved');
       });
       draw();

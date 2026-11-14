@@ -48,8 +48,7 @@ export function nowNext(who) {
     const end = prev._end || Math.min(prev._start + 3 * 3600e3, next ? next._start : Infinity);
     if (end > now) current = prev;
   }
-  const reminders = state.events.filter((e) => isFor(e, who) && e.important && e._start > now && e._start - (e.reminderMins || 60) * 60000 <= now);
-  return { current, next, reminders };
+  return { current, next };
 }
 
 export function hotelTonight() {

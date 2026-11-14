@@ -75,7 +75,7 @@ Open the app once while on Wi-Fi and look through the trip. After that it works 
 | Map view with pins (OpenStreetMap, online only) (6) | ✅ |
 | Manual entry + Google Maps link / Android share (7) | ✅ |
 | Attachments, cached for offline (PDFs saved as page pictures) (8) | ✅ (needs Firebase) |
-| Important events + reminder lead time (9) | ⚠️ in-app reminder banner only; **push notifications are the next step** (see below) |
+| Important events + reminders (9) | ➖ removed at Shinpei's request (Nov 2026) |
 | Wishlist + Add to plan (10) | ✅ |
 | Show-to-driver hotel cards (11) | ✅ |
 | Currency converter with shared manual rates (12) | ✅ |
@@ -83,11 +83,8 @@ Open the app once while on Wi-Fi and look through the trip. After that it works 
 | Daily weather from Open-Meteo, cached (14) | ✅ |
 | Phrasebook, Japanese & Mandarin, tap to hear (15) | ✅ |
 | Personal packing lists (16) | ✅ |
-| Google Photos album link (17) | ✅ |
+| Google Photos album link (17) | ✅ Photos tab |
 | Backup file export / import | ✅ (extra) |
-
-### Push reminders (still to do)
-Push notifications need a small server-side job that checks for upcoming Important events and sends the notification through Firebase Cloud Messaging. Plan: a scheduled GitHub Action (free, runs every 10 minutes, no extra software on this PC) using a Firebase service-account key stored as a GitHub secret. It can only be built and tested once the Firebase project exists. iPhone users must have the app on the home screen to receive pushes.
 
 ## Files
 

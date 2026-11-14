@@ -1,5 +1,5 @@
-// Wishlist, hotel cards for taxi drivers, money, phrasebook, packing list, time zones, "More" menu.
-import { state, go, hooks, memberName } from './state.js';
+// Photo album, wishlist, hotel cards for taxi drivers, money, phrasebook, packing list, time zones, "More" menu.
+import { state, go, goBack, memberName } from './state.js';
 import { store } from './store.js';
 import { esc, uid, clean, tripDays, dayLabel, ROUGH, mapsLink, ago, clock, clockDay, HOME, FLAG, curOfTz, langOfTz, cityOf, todayIn } from './util.js';
 import { dayCity, currentCity } from './derived.js';
@@ -12,22 +12,65 @@ const linkify = (s) => esc(s).replace(/https?:\/\/[^\s<]+/g, (u) => `<a href="${
 
 // ---------- More ----------
 export function more() {
-  const t = state.trip;
   const item = (href, icon, label, sub = '', external = false) => `<a class="menu-item" href="${esc(href)}" ${external ? 'target="_blank" rel="noopener"' : ''}><span class="mi-icon">${icon}</span><span><b>${label}</b>${sub ? `<small>${sub}</small>` : ''}</span></a>`;
   return {
     title: 'More', tab: 'more', live: false,
     html: `<nav class="menu">
+      ${item('#/wish', '⭐', 'Wishlist', 'Places the group would like to visit')}
       ${item('#/hotels', '🏨', 'Hotel cards', 'Show the taxi driver')}
-      ${item('#/money', '💱', 'Money', 'US$ · Yen · NT$')}
       ${item('#/phrases', '🗣️', 'Phrases', 'Japanese & Mandarin')}
       ${item('#/packing', '🧳', 'My packing list')}
       ${item('#/time', '🕒', 'Time zones', 'Trip time and Dallas time')}
-      ${t.photosUrl ? item(t.photosUrl, '📷', 'Shared photo album', 'Opens Google Photos', true) : item('#/settings', '📷', 'Shared photo album', 'Add the link in Trip settings')}
       ${item('#/settings', '⚙️', 'Trip settings', 'Trip code, people, cities, backup')}
       ${item('#/trips', '🧭', 'All my trips')}
     </nav>`,
   };
 }
+
+// ---------- Shared photo album ----------
+// Google Photos does not allow its albums to be shown inside other apps, so this screen keeps the
+// album link and opens it in Google Photos (the app, if it is installed).
+const isPhotosLink = (u) => /^https:\/\/(photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\//i.test(u);
+
+export function photos() {
+  const url = state.trip.photosUrl || '';
+  return {
+    title: 'Photos', tab: 'photos', live: true,
+    html: url ? `
+      <div class="card center photo-card">
+        <div class="hero-icon">📷</div>
+        <h2>Shared photo album</h2>
+        <p>Everyone's trip photos in one Google Photos album. Open it to look at photos or add your own.</p>
+        <a class="btn primary big" href="${esc(url)}" target="_blank" rel="noopener">Open the album</a>
+      </div>
+      <details class="card"><summary><b>Change the album link</b></summary>${photoForm(url)}</details>` : `
+      <div class="card">
+        <div class="hero-icon center">📷</div>
+        <h2>Add a shared photo album</h2>
+        <ol class="steps">
+          <li>Open the <b>Google Photos</b> app and make an album for the trip.</li>
+          <li>In the album, tap <b>Share</b>, then <b>Create link</b> (or <b>Copy link</b>).</li>
+          <li>Paste the link below and tap <b>Save</b>.</li>
+        </ol>
+        ${photoForm('')}
+      </div>`,
+    mount(el) {
+      el.querySelector('#photoform').addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        const v = ev.target.url.value.trim();
+        if (v && !/^https?:\/\//i.test(v)) { toast('Paste the whole link, starting with https://'); return; }
+        if (v && !isPhotosLink(v)) toast('Saved. (That does not look like a Google Photos link, but it will still open.)', 4000);
+        else toast(v ? 'Album saved' : 'Album link removed');
+        store.update(['trips', state.code], { photosUrl: v });
+      });
+    },
+  };
+}
+const photoForm = (url) => `<form id="photoform" class="photo-form">
+  <label>Google Photos album link<input id="photourl" name="url" type="url" inputmode="url" autocomplete="off" value="${esc(url)}" placeholder="https://photos.app.goo.gl/..."></label>
+  <button class="btn primary">Save</button>
+  ${url ? '<p class="small muted">To remove the album, clear the box and tap Save.</p>' : ''}
+</form>`;
 
 // ---------- Wishlist ----------
 export function wish() {
@@ -46,7 +89,7 @@ export function wish() {
       <a class="btn" href="#/wish-edit/${esc(w.id)}">Edit</a>
     </div></div>`;
   return {
-    title: 'Wishlist', tab: 'wish', live: true,
+    title: 'Wishlist', tab: 'more', back: '#/more', live: true,
     html: `<p class="muted">Places the group would like to visit. Anyone can add one.</p>
       <a class="btn primary big" href="#/wish-edit/new">+ Add a place</a>
       ${order.length ? order.map((c) => `<h2 class="section">${esc(c)}</h2>${groups[c].map(card).join('')}`).join('') : '<div class="card center muted">No places yet.</div>'}`,
@@ -71,7 +114,7 @@ async function addToPlan(w) {
   const id = uid();
   const data = {
     title: w.title, date, time, timeLabel: timeLabel || '', endTime: '', city, location: w.location || null,
-    notes: [w.notes, w.link].filter(Boolean).join('\n'), transit: '', attendees: [], important: false, reminderMins: 60, attachments: [],
+    notes: [w.notes, w.link].filter(Boolean).join('\n'), transit: '', attendees: [], attachments: [],
     updatedAt: Date.now(), updatedBy: state.me,
   };
   store.set(['trips', state.code, 'events', id], data);
@@ -83,7 +126,7 @@ async function addToPlan(w) {
 export function wishEdit(id) {
   const isNew = id === 'new';
   const src = isNew ? null : state.wish.find((w) => w.id === id);
-  if (!isNew && !src) { go('#/wish'); return null; }
+  if (!isNew && !src) { go('#/wish', true); return null; }
   const w = src ? { ...src } : { title: '', city: currentCity().name, location: null, notes: '', link: '' };
   if (isNew && state.prefill) { w.title = state.prefill.name || ''; w.location = clean(state.prefill); state.prefill = null; }
   const loc = { ...(w.location || {}) };
@@ -110,12 +153,12 @@ export function wishEdit(id) {
         const path = ['trips', state.code, 'wishlist', isNew ? uid() : id];
         store.set(path, data);
         autoPin(path, data.location);
-        go('#/wish');
+        goBack('#/wish');
       });
       el.querySelector('#del')?.addEventListener('click', async () => {
         if (!(await confirmBox(`Delete "${src.title}"?`))) return;
         store.remove(['trips', state.code, 'wishlist', id]);
-        go('#/wish');
+        goBack('#/wish');
       });
     },
   };
@@ -137,7 +180,7 @@ export function hotels() {
 
 export function hotelCard(id) {
   const h = state.hotels.find((x) => x.id === id);
-  if (!h) { go('#/hotels'); return null; }
+  if (!h) { go('#/hotels', true); return null; }
   const lang = hotelLang(h);
   return {
     title: h.name, full: true, live: false,
@@ -157,7 +200,7 @@ export function hotelCard(id) {
 export function hotelEdit(id) {
   const isNew = id === 'new';
   const h = isNew ? { city: currentCity().name } : state.hotels.find((x) => x.id === id);
-  if (!h) { go('#/hotels'); return null; }
+  if (!h) { go('#/hotels', true); return null; }
   const field = (name, label, extra = '') => `<label>${label}<input name="${name}" value="${esc(h[name] || '')}" ${extra}></label>`;
   return {
     title: isNew ? 'Add a hotel' : 'Edit hotel', back: isNew ? '#/hotels' : '#/hotel/' + id, live: false,
@@ -181,12 +224,12 @@ export function hotelEdit(id) {
         for (const k of Object.keys(d)) d[k] = d[k].trim();
         const newId = isNew ? uid() : id;
         store.set(['trips', state.code, 'hotels', newId], d);
-        go('#/hotel/' + newId);
+        if (isNew) go('#/hotel/' + newId, true); else goBack('#/hotel/' + newId);
       });
       el.querySelector('#del')?.addEventListener('click', async () => {
         if (!(await confirmBox(`Delete ${h.name}?`))) return;
         store.remove(['trips', state.code, 'hotels', id]);
-        go('#/hotels');
+        goBack('#/hotels', 2);
       });
     },
   };
@@ -206,7 +249,7 @@ export function money() {
     <small class="muted">${rates[c]?.updatedAt ? `Updated ${esc(ago(rates[c].updatedAt))} by ${esc(memberName(rates[c].by))}` : 'Not set yet'}</small></div>`;
   const quick = { JPY: [100, 500, 1000, 3000, 5000, 10000], TWD: [50, 100, 300, 500, 1000, 2000], USD: [1, 5, 10, 20, 50, 100] };
   return {
-    title: 'Money', back: '#/more', live: true, noTick: true,
+    title: 'Money', tab: 'money', live: true, noTick: true,
     html: `<div class="card">
       <div class="seg" id="seg">${Object.keys(CUR).map((c) => `<button type="button" data-c="${c}" class="${c === from ? 'on' : ''}">${CUR[c].flag} ${CUR[c].sym}</button>`).join('')}</div>
       <label class="amount"><span id="sym">${CUR[from].sym}</span><input id="amt" type="number" inputmode="decimal" step="any" placeholder="0" value="${esc(lastAmount)}"></label>

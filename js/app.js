@@ -1,6 +1,6 @@
 // App start-up, screen switching (the part after # in the address) and the header / tab bar.
 import { store } from './store.js';
-import { state, hooks, device, go } from './state.js';
+import { state, hooks, device, go, navDepth, takeReplacing } from './state.js';
 import { esc, clock, clockDay, FLAG, HOME, refreshWeather, parseMapsInput } from './util.js';
 import { decorate, currentCity } from './derived.js';
 import { cacheAttachments } from './files.js';
@@ -11,7 +11,7 @@ import * as X from './views-more.js';
 
 // [address pattern, screen, options]. trip:false = works without an open trip.
 const routes = [
-  [/^#\/?$/, () => go(state.code ? '#/now' : '#/trips'), { trip: false }],
+  [/^#\/?$/, () => go(state.code ? '#/now' : '#/trips', true), { trip: false }],
   [/^#\/trips$/, T.trips, { trip: false }],
   [/^#\/join(?:\/([\w-]+))?$/, T.join, { trip: false }],
   [/^#\/create$/, T.create, { trip: false }],
@@ -31,6 +31,7 @@ const routes = [
   [/^#\/hotel\/([\w-]+)$/, X.hotelCard],
   [/^#\/hotel-edit\/([\w-]+)$/, X.hotelEdit],
   [/^#\/money$/, X.money],
+  [/^#\/photos$/, X.photos],
   [/^#\/phrases(?:\/(ja|zh))?$/, X.phrases],
   [/^#\/packing$/, X.packing],
   [/^#\/time$/, X.time],
@@ -105,7 +106,7 @@ function render(keepScroll = false) {
     const m = hash.match(re);
     if (!m) continue;
     if (opt.trip !== false) {
-      if (!state.code) { go('#/trips'); return; }
+      if (!state.code) { go('#/trips', true); return; }
       if (!state.trip) {
         paint({ title: 'Loading…', live: true, html: tripLoaded ? T.missingTrip() : '<p class="center muted big">Loading your trip…</p>' }, keepScroll);
         return;
@@ -115,7 +116,7 @@ function render(keepScroll = false) {
     if (v) paint(v, keepScroll);
     return;
   }
-  go('#/');
+  go('#/', true);
 }
 
 function paint(v, keepScroll) {
@@ -125,13 +126,32 @@ function paint(v, keepScroll) {
   document.body.classList.toggle('full', !!v.full);
   document.getElementById('top').innerHTML = v.full ? '' : header(v);
   document.getElementById('main').innerHTML = v.html;
-  document.getElementById('nav').innerHTML = v.full || !state.code || !v.tab ? '' : nav(v.tab);
+  const navHtml = v.full || !state.code || !v.tab ? '' : nav(v.tab);
+  document.getElementById('nav').innerHTML = navHtml;
+  document.body.classList.toggle('has-nav', !!navHtml);
+  backButton(v);
   v.mount?.(document.getElementById('main'));
   window.scrollTo(0, keepScroll ? scroll : 0);
 }
 
+// Round Back button at the bottom right: goes to the screen you were on before.
+// If the app was just opened (nothing to go back to), it goes to the screen "above" this one instead.
+function backButton(v) {
+  let b = document.getElementById('backbtn');
+  if (!b) {
+    b = document.createElement('button');
+    b.id = 'backbtn'; b.type = 'button'; b.setAttribute('aria-label', 'Back');
+    b.innerHTML = '<span>‹</span><small>Back</small>';
+    b.addEventListener('click', () => {
+      if (navDepth() > 0) history.back();
+      else if (current?.view?.back) go(current.view.back, true);
+    });
+    document.body.appendChild(b);
+  }
+  b.hidden = !(navDepth() > 0 || v.back);
+}
+
 function header(v) {
-  const back = v.back ? `<a class="back" href="${esc(v.back)}" aria-label="Back">‹</a>` : '';
   let clocks = '';
   if (state.trip && !v.noClock) {
     const here = currentCity();
@@ -141,12 +161,13 @@ function header(v) {
   }
   const offline = navigator.onLine ? '' : '<span class="pill offline">Offline</span>';
   const preview = store.mode === 'local' ? '<span class="pill preview" title="Saved on this device only">Preview</span>' : '';
-  return `<header class="bar">${back}<h1>${esc(v.title || 'Family Trip')}</h1>${offline}${preview}</header>${clocks}`;
+  return `<header class="bar"><h1>${esc(v.title || 'Family Trip')}</h1>${offline}${preview}</header>${clocks}`;
 }
 
 function nav(tab) {
   const item = (id, href, icon, label) => `<a href="${href}" class="${tab === id ? 'on' : ''}"><span>${icon}</span>${label}</a>`;
-  return item('now', '#/now', '🏠', 'Now') + item('plan', '#/plan', '📅', 'Plan') + item('wish', '#/wish', '⭐', 'Wishlist') + item('more', '#/more', '☰', 'More');
+  return item('now', '#/now', '🏠', 'Now') + item('plan', '#/plan', '📅', 'Plan') + item('photos', '#/photos', '📷', 'Photos')
+    + item('money', '#/money', '💱', 'Money') + item('more', '#/more', '☰', 'More');
 }
 
 // A place shared from Google Maps (Android "Share" menu) arrives as ?title=&text=&url=
@@ -169,7 +190,15 @@ async function start() {
   takeSharedPlace();
   const cur = device.current();
   if (cur) openTrip(cur);
-  window.addEventListener('hashchange', () => render());
+  // Number each screen in this visit so the Back button knows whether there is somewhere to go back to.
+  let depth = history.state?.d ?? 0;
+  if (history.state?.d == null) history.replaceState({ d: 0 }, '');
+  window.addEventListener('hashchange', () => {
+    const replaced = takeReplacing();
+    if (history.state?.d == null) history.replaceState({ d: replaced ? depth : depth + 1 }, '');
+    depth = history.state.d;
+    render();
+  });
   window.addEventListener('online', () => { render(true); if (state.trip) refreshWeather(state.trip).then(() => refresh()); cacheAttachments(state.events); });
   window.addEventListener('offline', () => render(true));
   window.addEventListener('tp-error', (e) => toast('Could not save: ' + e.detail, 5000));

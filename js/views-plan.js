@@ -1,5 +1,5 @@
 // Now & Next, the daily plan, the map, event details / editing, attachments viewer.
-import { state, go, hooks, memberName, meName } from './state.js';
+import { state, go, goBack, hooks, memberName, meName } from './state.js';
 import { store } from './store.js';
 import { esc, uid, clone, clean, tripDays, dayLabel, todayIn, timeText, fmt12, countdown, clock, clockDay, HOME, ROUGH, cityOf,
   mapsLink, parseMapsInput, geocode, weatherFor, loadScript, loadCss, eventTz } from './util.js';
@@ -27,7 +27,7 @@ function defaultDay() {
 // ---------- Now & Next ----------
 export function now() {
   const t = state.trip;
-  const { current, next, reminders } = nowNext(state.me);
+  const { current, next } = nowNext(state.me);
   const here = currentCity();
   const today = todayIn(here.tz);
   const homeToday = todayIn(HOME.tz);
@@ -48,7 +48,7 @@ export function now() {
     const when = kind === 'next' ? countdown(e._start) : (e.timeLabel || 'started ' + fmt12(e.time));
     const loc = e.location || {};
     const att = e.attachments?.length ? `<a class="btn" href="#/file/${esc(e.id)}/0">🎫 ${e.attachments.length > 1 ? 'Tickets' : 'Ticket'}</a>` : '';
-    return `<section class="nn ${kind}${e.important ? ' important' : ''}">
+    return `<section class="nn ${kind}">
       <div class="nn-label">${kind === 'now' ? 'Now' : 'Next'} <span>${esc(when)}</span></div>
       <a class="nn-title" href="#/event/${esc(e.id)}">${esc(e.title)}</a>
       <div class="nn-time">${sameDay ? '' : esc(dayLabel(e.date)) + ' · '}${esc(timeText(e))}${e.city && e.city !== here.name ? ' · ' + esc(e.city) : ''}</div>
@@ -63,7 +63,6 @@ export function now() {
     html: `
       <div class="hello">Hi ${esc(meName())} 👋</div>
       ${banner}
-      ${reminders.map((e) => `<a class="reminder" href="#/event/${esc(e.id)}">⏰ <b>${esc(e.title)}</b> ${esc(countdown(e._start))}</a>`).join('')}
       <div class="today">
         <div><div class="today-city">${esc(here.name)}</div><div class="today-clock">${clock(here.tz)} <small>${clockDay(here.tz)}</small></div>
         ${here.tz !== HOME.tz ? `<div class="muted">Dallas ${clock(HOME.tz)} ${clockDay(HOME.tz)}</div>` : ''}</div>
@@ -74,9 +73,9 @@ export function now() {
       ${!current && !next ? '<div class="card center"><p class="big">Nothing else planned.</p><a class="btn primary" href="#/plan">See the plan</a></div>' : ''}
       <div class="tiles">
         <a class="tile" href="${hotel ? `#/hotel/${esc(hotel.id)}` : '#/hotels'}"><span>🏨</span>Hotel card</a>
-        <a class="tile" href="#/money"><span>💱</span>Money</a>
+        <a class="tile" href="#/wish"><span>⭐</span>Wishlist</a>
         <a class="tile" href="#/phrases"><span>🗣️</span>Phrases</a>
-        ${t.photosUrl ? `<a class="tile" href="${esc(t.photosUrl)}" target="_blank" rel="noopener"><span>📷</span>Photos</a>` : '<a class="tile" href="#/packing"><span>🧳</span>Packing</a>'}
+        <a class="tile" href="#/packing"><span>🧳</span>Packing</a>
       </div>`,
   };
 }
@@ -102,9 +101,10 @@ export function plan(day) {
       e.attachments?.length ? '📎' : '',
       who ? '👤 ' + esc(who) : '',
     ].filter(Boolean).join(' · ');
-    return `<li><a href="#/event/${esc(e.id)}" class="ev${e.important ? ' important' : ''}${live ? ' live' : ''}${e._end && e._end < nowMs || (!e._end && e._start + 3600e3 < nowMs) ? ' past' : ''}">
-      <span class="ev-time">${esc(timeText(e))}</span>
-      <span class="ev-main">${showCity ? `<span class="city-tag">→ ${esc(e.city)}</span>` : ''}<b>${e.important ? '⭐ ' : ''}${esc(e.title)}</b>${bits ? `<small>${bits}</small>` : ''}</span></a></li>`;
+    const when = e.timeLabel ? esc(e.timeLabel) : esc(fmt12(e.time)) + (e.endTime ? `<small>– ${esc(fmt12(e.endTime))}</small>` : '');
+    return `<li><a href="#/event/${esc(e.id)}" class="ev${live ? ' live' : ''}${e._end && e._end < nowMs || (!e._end && e._start + 3600e3 < nowMs) ? ' past' : ''}">
+      <span class="ev-time">${when}</span>
+      <span class="ev-main">${showCity ? `<span class="city-tag">→ ${esc(e.city)}</span>` : ''}<b>${esc(e.title)}</b>${bits ? `<small>${bits}</small>` : ''}</span></a></li>`;
   }).join('');
 
   return {
@@ -116,18 +116,41 @@ export function plan(day) {
         <div>📍 ${esc(city)}${weatherFor(city, d) ? ' · ' + wxLine(city, d) : ''}</div>
       </div>
       <div class="toolbar">
-        <label class="who">Showing <select id="who"><option value="all">Everyone</option>${t.members.map((m) => `<option value="${esc(m.id)}" ${state.filter === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
+        <label class="who"><span>Showing</span><select id="who"><option value="all">Everyone</option>${t.members.map((m) => `<option value="${esc(m.id)}" ${state.filter === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
         <a class="btn" href="#/map/${d}">🗺️ Map</a>
         <a class="btn primary" href="#/edit/new/${d}">+ Add</a>
       </div>
       ${rows ? `<ol class="timeline">${rows}</ol>` : `<div class="card center muted">Nothing planned${state.filter !== 'all' ? ' for ' + esc(memberName(state.filter)) : ''} on this day yet.</div>`}
-      <div class="btn-row pager">
-        ${idx > 0 ? `<a class="btn" href="#/plan/${days[idx - 1]}">‹ ${esc(dayLabel(days[idx - 1], { weekday: 'short' }))}</a>` : '<span></span>'}
-        ${idx >= 0 && idx < days.length - 1 ? `<a class="btn" href="#/plan/${days[idx + 1]}">${esc(dayLabel(days[idx + 1], { weekday: 'short' }))} ›</a>` : ''}
+      <div class="pager" id="pager">
+        ${idx > 0 ? `<a class="pg" data-day="${days[idx - 1]}" href="#/plan/${days[idx - 1]}" aria-label="Previous day">‹</a>` : '<span class="pg off">‹</span>'}
+        <span class="pg-label">${idx >= 0 ? `Day ${idx + 1} of ${days.length}` : esc(dayLabel(d, { month: 'short', day: 'numeric' }))}</span>
+        ${idx >= 0 && idx < days.length - 1 ? `<a class="pg" data-day="${days[idx + 1]}" href="#/plan/${days[idx + 1]}" aria-label="Next day">›</a>` : '<span class="pg off">›</span>'}
       </div>`,
     mount(el) {
       const on = el.querySelector('.chip.on');
       if (on) el.querySelector('#days').scrollLeft = on.offsetLeft - 16;
+      // Changing days swaps the screen instead of adding a step, so Back leaves the plan rather than walking through days.
+      const toDay = (x) => { if (x) go('#/plan/' + x, true); };
+      el.querySelectorAll('.chip, .pg[data-day]').forEach((a) => a.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        toDay(a.dataset.day || a.getAttribute('href').split('/').pop());
+      }));
+      // Swipe left = next day, swipe right = previous day. Swipes that start at the very edge of the
+      // screen are ignored, because iPhone and Android use those for their own "go back" gesture.
+      let sx = null, sy = 0, st = 0;
+      el.addEventListener('touchstart', (ev) => {
+        const t0 = ev.touches[0];
+        sx = ev.touches.length === 1 && t0.clientX > 30 && t0.clientX < innerWidth - 30 && !ev.target.closest('#days, select') ? t0.clientX : null;
+        sy = t0.clientY; st = Date.now();
+      }, { passive: true });
+      el.addEventListener('touchend', (ev) => {
+        if (sx == null) return;
+        const t1 = ev.changedTouches[0];
+        const dx = t1.clientX - sx, dy = t1.clientY - sy;
+        sx = null;
+        if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - st > 800) return;
+        toDay(days[idx + (dx < 0 ? 1 : -1)]);
+      }, { passive: true });
       el.querySelector('#who').addEventListener('change', (ev) => {
         state.filter = ev.target.value;
         try { localStorage.setItem('tp.filter', JSON.stringify(state.filter)); } catch { /* ignore */ }
@@ -176,11 +199,9 @@ export function eventView(id) {
   const loc = e.location || {};
   const tz = eventTz(state.trip, e);
   const who = e.attendees?.length ? e.attendees.map(memberName).join(', ') : 'Everyone';
-  const lead = e.reminderMins >= 1440 ? `${e.reminderMins / 1440} day` : e.reminderMins >= 60 ? `${e.reminderMins / 60} h` : `${e.reminderMins || 60} min`;
   return {
     title: e.title, back: '#/plan/' + e.date, live: true,
-    html: `<article class="card detail${e.important ? ' important' : ''}">
-      ${e.important ? `<div class="badge">⭐ Important · reminder ${esc(lead)} before</div>` : ''}
+    html: `<article class="card detail">
       <h2 class="detail-title">${esc(e.title)}</h2>
       <p class="big">${esc(dayLabel(e.date, { weekday: 'long', month: 'long', day: 'numeric' }))}<br><b>${esc(timeText(e))}</b>${e.city ? ' · ' + esc(e.city) : ''}</p>
       ${!e.timeLabel && tz !== HOME.tz ? `<p class="muted">Dallas time: ${clock(HOME.tz, e._start)} ${clockDay(HOME.tz, e._start)}</p>` : ''}
@@ -220,7 +241,7 @@ export function fileView(id, i) {
 // ---------- A place shared in from Google Maps ----------
 export function shared() {
   const p = state.prefill;
-  if (!p) { go('#/now'); return null; }
+  if (!p) { go('#/now', true); return null; }
   return {
     title: 'Add a place', back: '#/now', live: false,
     html: `<div class="card"><h2>${esc(p.name || 'Shared place')}</h2>${p.address ? `<p>${esc(p.address)}</p>` : ''}
@@ -231,10 +252,10 @@ export function shared() {
 // ---------- Add / edit an event ----------
 export const PLACE_FIELDS = (loc) => `
   <fieldset><legend>Place</legend>
-    <label>Paste a Google Maps link <span class="muted">(or what Google Maps shares)</span><textarea name="paste" rows="2" placeholder="https://maps.app.goo.gl/..."></textarea></label>
-    <button type="button" class="btn" id="fill">Fill in from link</button>
     <label>Place name<input name="locName" value="${esc(loc.name || '')}"></label>
     <label>Address<textarea name="locAddress" rows="2">${esc(loc.address || '')}</textarea></label>
+    <label>Paste a Google Maps link <span class="muted">(or what Google Maps shares)</span><textarea name="paste" rows="2" placeholder="https://maps.app.goo.gl/..."></textarea></label>
+    <button type="button" class="btn" id="fill">Fill in from link</button>
     <p class="small" id="pin"></p>
   </fieldset>`;
 
@@ -317,14 +338,12 @@ export async function pinMissing() {
   pinning = false;
 }
 
-const LEADS = [[15, '15 minutes'], [30, '30 minutes'], [60, '1 hour'], [120, '2 hours'], [180, '3 hours'], [240, '4 hours'], [1440, '1 day']];
-
 export function eventEdit(id, date) {
   const isNew = id === 'new';
   const src = isNew ? null : findEvent(id);
   if (!isNew && !src) return notFound('#/plan');
   const d0 = date || defaultDay();
-  const e = src ? clone(src) : { title: '', date: d0, time: '', timeLabel: '', endTime: '', city: dayCity(d0), location: null, notes: '', transit: '', attendees: [], important: false, reminderMins: 60, attachments: [] };
+  const e = src ? clone(src) : { title: '', date: d0, time: '', timeLabel: '', endTime: '', city: dayCity(d0), location: null, notes: '', transit: '', attendees: [], attachments: [] };
   if (isNew && state.prefill) { e.title = state.prefill.name || ''; e.location = clean(state.prefill); state.prefill = null; }
   const loc = { ...(e.location || {}) };
   let atts = e.attachments || [];
@@ -344,7 +363,7 @@ export function eventEdit(id, date) {
       </div>
       <div class="two">
         <label>Start time<input type="time" name="time" value="${esc(e.timeLabel ? '' : e.time)}"></label>
-        <label>End time <span class="muted">(optional)</span><input type="time" name="endTime" value="${esc(e.endTime || '')}"></label>
+        <label>End time<input type="time" name="endTime" value="${esc(e.endTime || '')}"></label>
       </div>
       <label>…or a rough time<select name="timeLabel"><option value="">Use the exact time</option>${Object.keys(ROUGH).map((k) => `<option ${k === e.timeLabel ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
       ${PLACE_FIELDS(loc)}
@@ -353,10 +372,6 @@ export function eventEdit(id, date) {
       <fieldset><legend>Who's going</legend>
         <div class="checks">${t.members.map((m) => `<label class="check"><input type="checkbox" name="att" value="${esc(m.id)}" ${e.attendees?.includes(m.id) ? 'checked' : ''}> ${esc(m.name)}</label>`).join('')}</div>
         <p class="muted small">Leave everyone unticked if the whole group is going.</p>
-      </fieldset>
-      <fieldset><legend>Important</legend>
-        <label class="check"><input type="checkbox" name="important" ${e.important ? 'checked' : ''}> ⭐ Important (flight, train, reservation)</label>
-        <label>Remind before<select name="reminderMins">${LEADS.map(([v, n]) => `<option value="${v}" ${v === (e.reminderMins || 60) ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       </fieldset>
       <fieldset><legend>Tickets & files</legend>
         <div id="atts"></div>
@@ -415,7 +430,7 @@ export function eventEdit(id, date) {
           title, date: f.date.value, time, timeLabel: label, endTime: label ? '' : f.endTime.value, city: f.city.value,
           location: readPlace(el, loc), notes: f.notes.value.trim(), transit: f.transit.value.trim(),
           attendees: [...f.querySelectorAll('[name=att]:checked')].map((i) => i.value),
-          important: f.important.checked, reminderMins: +f.reminderMins.value, attachments: atts,
+          attachments: atts,
           updatedAt: Date.now(), updatedBy: state.me,
         };
         const newId = isNew ? uid() : id;
@@ -424,13 +439,13 @@ export function eventEdit(id, date) {
         removed.forEach(deleteAttachment);
         autoPin(path, data.location);
         toast('Saved');
-        go('#/event/' + newId);
+        if (isNew) go('#/event/' + newId, true); else goBack('#/event/' + newId);
       });
       el.querySelector('#del')?.addEventListener('click', async () => {
         if (!(await confirmBox(`Delete "${src.title}"?`))) return;
         store.remove(['trips', state.code, 'events', id]);
         [...atts, ...removed].forEach(deleteAttachment);
-        go('#/plan/' + src.date);
+        goBack('#/plan/' + src.date, 2);
       });
     },
   };

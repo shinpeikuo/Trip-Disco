@@ -5,6 +5,21 @@ import { esc, uid, clean, makeCode, normCode, fmtCode, CITY_PRESETS, TZ_CHOICES,
 import { toast, modal, confirmBox } from './ui.js';
 
 const appUrl = () => location.origin + location.pathname;
+const inviteText = (code, name) => `Join our trip "${name}" in the Family Trip app.\n\n1. Open ${appUrl()}#/join/${code}\n2. Tap your name\n\nTrip code: ${fmtCode(code)}`;
+
+// Send a trip's invite: text message, the phone's share menu, or copy.
+async function shareTrip(code, name) {
+  const r = await modal(`Share "${name}"`, `<p class="small">Anyone with the code can see and change the trip, so only send it to family.</p>
+    <p class="code-show">${esc(fmtCode(code))}</p>`, [
+    { label: '💬 Text', value: 'sms', cls: 'primary' },
+    ...(navigator.share ? [{ label: 'Share…', value: 'share' }] : []),
+    { label: 'Copy', value: 'copy' },
+  ]);
+  const msg = inviteText(code, name);
+  if (r.value === 'sms') location.href = 'sms:?&body=' + encodeURIComponent(msg);
+  else if (r.value === 'share') navigator.share({ text: msg }).catch(() => {});
+  else if (r.value === 'copy') navigator.clipboard.writeText(msg).then(() => toast('Invite copied'), () => toast(fmtCode(code)));
+}
 const dates = (t) => (t.startDate ? `${dayLabel(t.startDate, { month: 'short', day: 'numeric' })} – ${dayLabel(t.endDate, { month: 'short', day: 'numeric', year: 'numeric' })}` : '');
 
 export function missingTrip() {
@@ -26,11 +41,23 @@ export function trips() {
       ${upcoming.length ? `<h2 class="section">Upcoming</h2>${upcoming.map(row).join('')}` : ''}
       ${past.length ? `<h2 class="section">Past trips</h2>${past.map(row).join('')}` : ''}
       <div class="stack">
+        ${list.length ? '<button class="btn big" id="sharetrip">📤 Share a trip</button>' : ''}
         <a class="btn primary big" href="#/join">I have a trip code</a>
         <a class="btn" href="#/create">Create a new trip</a>
       </div>`,
     mount(el) {
       el.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', () => { hooks.openTrip(b.dataset.open); go('#/now'); }));
+      el.querySelector('#sharetrip')?.addEventListener('click', async () => {
+        let t = list[0];
+        if (list.length > 1) {
+          const r = await modal('Which trip do you want to share?', `<div class="stack">${[...upcoming, ...past].map((x) =>
+            `<label class="check"><input type="radio" name="code" value="${esc(x.code)}" ${x.code === (state.code || upcoming[0]?.code) ? 'checked' : ''}> <span><b>${esc(x.name || 'Trip')}</b><br><small class="muted">${esc(dates(x))}</small></span></label>`).join('')}</div>`,
+          [{ label: 'Cancel', value: false }, { label: 'Next', value: true, cls: 'primary' }]);
+          if (!r.value || !r.data.code) return;
+          t = list.find((x) => x.code === r.data.code);
+        }
+        if (t) shareTrip(t.code, t.name || 'Trip');
+      });
     },
   };
 }
@@ -56,7 +83,7 @@ export function join(codeFromLink) {
           const trip = await store.get(['trips', code]);
           if (!trip) { msg.textContent = 'No trip has that code. Please check it and try again.'; return; }
           state.pendingJoin = { code, trip };
-          go('#/pick');
+          go('#/pick', true);
         } catch {
           msg.textContent = 'Could not reach the trip. Joining needs the internet once.';
         }
@@ -68,7 +95,7 @@ export function join(codeFromLink) {
 // ---------- Pick your name ----------
 export function pick() {
   const p = state.pendingJoin || (state.code && state.trip ? { code: state.code, trip: state.trip } : null);
-  if (!p) { go('#/trips'); return null; }
+  if (!p) { go('#/trips', true); return null; }
   return {
     title: 'Who are you?', back: state.code ? '#/settings' : '#/trips', live: false,
     html: `<h2 class="section center">${esc(p.trip.name)}</h2>
@@ -80,7 +107,7 @@ export function pick() {
         device.save({ code: p.code, me: b.dataset.id, name: p.trip.name, startDate: p.trip.startDate, endDate: p.trip.endDate });
         state.pendingJoin = null;
         hooks.openTrip(p.code);
-        go('#/now');
+        go('#/now', true);
       }));
     },
   };
@@ -118,7 +145,7 @@ export function create() {
         const code = makeCode();
         store.set(['trips', code], trip);
         state.pendingJoin = { code, trip };
-        go('#/pick');
+        go('#/pick', true);
       });
       el.querySelector('#planfile').addEventListener('change', async (ev) => {
         const file = ev.target.files[0];
@@ -132,7 +159,7 @@ export function create() {
           importItems(code, data, trip.members);
           state.pendingJoin = { code, trip };
           toast(`Imported ${data.events?.length || 0} plans and ${data.wishlist?.length || 0} wishlist places`);
-          go('#/pick');
+          go('#/pick', true);
         } catch (e) {
           console.error(e);
           toast('That file is not a trip plan file.');
@@ -168,11 +195,7 @@ export function settings() {
       <h2>Trip code</h2>
       <p class="code-show">${esc(fmtCode(state.code))}</p>
       <p class="muted small">Anyone with this code can see and change the trip, so only send it to family.</p>
-      <div class="stack">
-        <button class="btn primary" id="sms">💬 Text the code</button>
-        ${navigator.share ? '<button class="btn" id="share">Share…</button>' : ''}
-        <button class="btn" id="copy">Copy code</button>
-      </div>
+      <div class="stack"><button class="btn primary" id="sharecode">📤 Share the trip</button></div>
     </div>
     <form class="card" id="details">
       <h2>Trip details</h2>
@@ -208,10 +231,7 @@ export function settings() {
       <div class="stack"><a class="btn" href="#/trips">All my trips</a><button class="btn danger" id="leave">Remove this trip from this device</button></div>
     </div>`,
     mount(el) {
-      const msg = `Join our trip "${t.name}" in the Family Trip app.\n\n1. Open ${appUrl()}#/join/${state.code}\n2. Tap your name\n\nTrip code: ${fmtCode(state.code)}`;
-      el.querySelector('#sms').addEventListener('click', () => { location.href = 'sms:?&body=' + encodeURIComponent(msg); });
-      el.querySelector('#share')?.addEventListener('click', () => navigator.share({ text: msg }).catch(() => {}));
-      el.querySelector('#copy').addEventListener('click', () => navigator.clipboard.writeText(fmtCode(state.code)).then(() => toast('Code copied'), () => toast(fmtCode(state.code))));
+      el.querySelector('#sharecode').addEventListener('click', () => shareTrip(state.code, t.name));
 
       el.querySelector('#details').addEventListener('submit', (ev) => {
         ev.preventDefault();
@@ -289,7 +309,7 @@ export function settings() {
         if (!(await confirmBox('Remove this trip from this device? The trip stays saved for everyone else, and you can join again with the code.', 'Remove'))) return;
         device.remove(state.code);
         hooks.closeTrip();
-        go('#/trips');
+        go('#/trips', true);
       });
     },
   };

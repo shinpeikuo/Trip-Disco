@@ -195,7 +195,29 @@ async function start() {
   window.addEventListener('tp-error', (e) => toast('Could not save: ' + e.detail, 5000));
   setInterval(() => { if (current?.view?.live && !current.view.noTick && !document.querySelector('.modal-wrap')) render(true); }, 30000);
   render();
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') setUpUpdates();
+}
+
+// Updates: look for a new version whenever the app is opened or brought back to the front
+// (Android usually resumes the app instead of restarting it). When a new version has been
+// downloaded, reload to show it, unless a form is open, in which case wait for the next screen change.
+function setUpUpdates() {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+    window.addEventListener('online', check);
+    setInterval(check, 30 * 60 * 1000);
+  }).catch(() => {});
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return; // first install: nothing old on screen
+    reloading = true;
+    const busy = () => document.querySelector('#main form#f, .modal-wrap');
+    if (!busy()) { location.reload(); return; }
+    toast('A new version is ready. It will appear when you leave this screen.', 5000);
+    window.addEventListener('hashchange', () => location.reload(), { once: true });
+  });
 }
 
 start();

@@ -1,7 +1,7 @@
 // Service worker: keeps the app, the Firebase code and every attachment picture on the phone,
 // so the trip opens without internet (subway, plane).
 // Change VERSION when you publish an update so phones pick up the new files.
-const VERSION = 'v7';
+const VERSION = 'v8';
 const SHELL = `tp-shell-${VERSION}`;
 const LIBS = 'tp-libs';
 const FILES = 'tp-files';
@@ -14,7 +14,11 @@ const SHELL_FILES = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES)).then(() => self.skipWaiting()));
+  // cache: 'reload' = always download fresh copies. Without it the phone could reuse files it got
+  // in the last 10 minutes (GitHub Pages allows that) and save the OLD app under the new version.
+  e.waitUntil(caches.open(SHELL)
+    .then((c) => c.addAll(SHELL_FILES.map((u) => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -40,7 +44,8 @@ self.addEventListener('fetch', (e) => {
     }
     e.respondWith(caches.open(SHELL).then(async (cache) => {
       const hit = await cache.match(req, { ignoreSearch: true });
-      const net = fetch(req).then((res) => { if (res.ok) cache.put(req, res.clone()); return res; }).catch(() => hit);
+      // 'no-cache' = ask GitHub whether the file changed (quick when it has not).
+      const net = fetch(req.url, { cache: 'no-cache' }).then((res) => { if (res.ok) cache.put(req, res.clone()); return res; }).catch(() => hit);
       return hit || net;
     }));
     return;

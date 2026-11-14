@@ -112,7 +112,7 @@ export function plan(day) {
   return {
     title: 'Plan', tab: 'plan', live: true,
     html: `
-      <div class="days" id="days">${days.map((x, i) => `<a class="chip${x === d ? ' on' : ''}" href="#/plan/${x}"><b>Day ${i + 1}</b><span>${esc(dayLabel(x, { weekday: 'short' }))} ${esc(dayLabel(x, { month: 'numeric', day: 'numeric' }))}</span></a>`).join('')}</div>
+      <nav class="daybar" id="days" aria-label="Trip days">${days.map((x, i) => `<a class="dseg${x === d ? ' on' : ''}" href="#/plan/${x}" aria-label="Day ${i + 1}, ${esc(dayLabel(x))}"${x === d ? ' aria-current="page"' : ''}>${i + 1}</a>`).join('')}</nav>
       <div class="swipe" id="swipe">
       <div class="day-head">
         <h2>${esc(dayLabel(d, { weekday: 'long', month: 'long', day: 'numeric' }))}</h2>
@@ -131,8 +131,6 @@ export function plan(day) {
         ${idx >= 0 && idx < days.length - 1 ? `<a class="pg" data-day="${days[idx + 1]}" href="#/plan/${days[idx + 1]}" aria-label="Next day">›</a>` : '<span class="pg off">›</span>'}
       </div>`,
     mount(el) {
-      const on = el.querySelector('.chip.on');
-      if (on) el.querySelector('#days').scrollLeft = on.offsetLeft - 16; // jump straight there, no scrolling animation
       const sw = el.querySelector('#swipe');
       const slide = (x, ms) => { sw.style.transition = ms ? `transform ${ms}ms ease-out, opacity ${ms}ms ease-out` : 'none'; sw.style.transform = x ? `translateX(${x}px)` : ''; };
 
@@ -151,7 +149,7 @@ export function plan(day) {
         if (dir) { slide(-dir * innerWidth, 160); sw.style.opacity = '0'; setTimeout(() => go('#/plan/' + x, true), 150); }
         else go('#/plan/' + x, true);
       };
-      el.querySelectorAll('.chip').forEach((a) => a.addEventListener('click', (ev) => {
+      el.querySelectorAll('.dseg').forEach((a) => a.addEventListener('click', (ev) => {
         ev.preventDefault();
         const x = a.getAttribute('href').split('/').pop();
         toDay(x, Math.sign(days.indexOf(x) - idx) || 0);
